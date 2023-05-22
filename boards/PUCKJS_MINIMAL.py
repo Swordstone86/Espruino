@@ -35,7 +35,8 @@ info = {
    'libraries' : [
      'BLUETOOTH',
      'NFC',
-     'NEOPIXEL'
+     #'NEOPIXEL',
+     'JIT'
    ],
    'makefile' : [
      'DEFINES+=-DHAL_NFC_ENGINEERING_BC_FTPAN_WORKAROUND=1', # Looks like proper production nRF52s had this issue
