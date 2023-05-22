@@ -1,5 +1,10 @@
 *~
 *.pyc
+*.o
+*.hex
+*.app_hex
+*.elf
+*.zip
 /gen/*
 /bin/*
 /bin_*/*
