@@ -12,6 +12,7 @@
  * ----------------------------------------------------------------------------
  */
 #include "jspin.h"
+#include "bluetooth.h"
 
 // ------------------------------------------------------------------------------
 typedef enum {
@@ -36,9 +37,9 @@ typedef enum {
 } BleTask;
 
 #ifdef ESPR_BLUETOOTH_ANCS
-#define BLETASK_STRINGS "NONE\0REQ_DEV\0CONNECT\0DISCONNECT\0SERVICE\0CHAR\0CHAR_WR\0CHAR_RD\0CHAR_NOTIFY\0BOND\0ANCS_NOTIF_ATTR\0ANCS_APP_ATTR\0AMS_ATTR\0"
+#define BLETASK_STRINGS "NONE\0REQ_DEV\0CONNECT\0DISCONNECT\0SERVICE\0CHAR\0CHAR_WR\0CHAR_RD\0CHAR_DESC_NOTIFY\nCHAR_NOTIFY\0BOND\0ANCS_NOTIF_ATTR\0ANCS_APP_ATTR\0AMS_ATTR\0"
 #else
-#define BLETASK_STRINGS "NONE\0REQ_DEV\0CONNECT\0DISCONNECT\0SERVICE\0CHAR\0CHAR_WR\0CHAR_RD\0CHAR_NOTIFY\0BOND\0"
+#define BLETASK_STRINGS "NONE\0REQ_DEV\0CONNECT\0DISCONNECT\0SERVICE\0CHAR\0CHAR_WR\0CHAR_RD\0CHAR_DESC_NOTIFY\nCHAR_NOTIFY\0BOND\0"
 #endif
 
 // Is this task related to BLE central mode?
@@ -47,6 +48,7 @@ typedef enum {
 #define BLETASK_IS_ANCS(x) ((x)==BLETASK_ANCS_NOTIF_ATTR || ((x)==BLETASK_ANCS_APP_ATTR))
 #define BLETASK_IS_AMS(x) ((x)==BLETASK_AMS_ATTR)
 #endif
+
 
 extern JsVar *bleTaskInfo; // info related to the current task
 extern JsVar *bleTaskInfo2; // info related to the current task
@@ -61,7 +63,7 @@ void bleCompleteTaskFail(BleTask task, JsVar *data);
 void bleCompleteTaskFailAndUnLock(BleTask task, JsVar *data);
 void bleSwitchTask(BleTask task);
 
-#ifdef NRF52_SERIES
+#if CENTRAL_LINK_COUNT>0
 // Set the currently active GATT server based on the index in m_central_conn_handles
 void bleSetActiveBluetoothGattServer(int idx, JsVar *var);
 // Get the currently active GATT server based on the index in m_central_conn_handles (the return value needs unlocking)

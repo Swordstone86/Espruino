@@ -34,7 +34,7 @@
  * rebooting Espruino. */
 #define APP_ERROR_CHECK_NOT_URGENT(ERR_CODE) if (ERR_CODE) { uint32_t line = __LINE__; jsble_queue_pending_buf(BLEP_ERROR, ERR_CODE, (char*)&line, 4); }
 
-#else
+#else // !NRF5X
 typedef struct {
   uint16_t uuid;
   uint8_t type;			//see BLE_UUID_TYPE_... definitions
@@ -66,7 +66,10 @@ typedef struct {
 #define MSEC_TO_UNITS(MS,MEH) MS
 #define GATT_MTU_SIZE_DEFAULT 23
 #define BLE_NUS_MAX_DATA_LEN 20 //GATT_MTU_SIZE_DEFAULT - 3
-#endif
+#define BLE_CCCD_VALUE_LEN 2
+#define BLE_GATT_HVX_NOTIFICATION 1 // flag in CCCD
+#define BLE_GATT_HVX_INDICATION 2 // flag in CCCD
+#endif //!NRF5X (fudge NRF5X API for ESP32)
 
 #ifndef CENTRAL_LINK_COUNT /**<number of central links used by the application. When changing this number remember to adjust the RAM settings*/
 #if defined(NRF52_SERIES) || defined(ESP32) // nRF52 gets the ability to connect to other devices
@@ -124,9 +127,11 @@ typedef enum  {
   BLE_AMS_INITED = 1<<17,   //< Apple Media Service enabled
   BLE_ANCS_OR_AMS_INITED = BLE_ANCS_INITED|BLE_AMS_INITED, //< Apple Notifications or Media Service enabled
 #endif
-
-  BLE_IS_ADVERTISING_MULTIPLE = 1<<18, // We have multiple different advertising packets
-  BLE_ADVERTISING_MULTIPLE_SHIFT = 19,//GET_BIT_NUMBER(BLE_ADVERTISING_MULTIPLE_ONE),
+#ifndef SAVE_ON_FLASH
+  BLE_ADVERTISE_WHEN_CONNECTED = 1<<18, // Do we keep advertising when we're connected?
+#endif
+  BLE_IS_ADVERTISING_MULTIPLE = 1<<19, // We have multiple different advertising packets
+  BLE_ADVERTISING_MULTIPLE_SHIFT = 20,//GET_BIT_NUMBER(BLE_ADVERTISING_MULTIPLE_ONE),
   BLE_ADVERTISING_MULTIPLE_ONE = 1 << BLE_ADVERTISING_MULTIPLE_SHIFT,
   BLE_ADVERTISING_MULTIPLE_MASK = 255 << BLE_ADVERTISING_MULTIPLE_SHIFT,
 
@@ -134,18 +139,28 @@ typedef enum  {
   BLE_RESET_ON_SOFTDEVICE_START = BLE_IS_SENDING|BLE_IS_SCANNING|BLE_IS_ADVERTISING
 } BLEStatus;
 
+typedef enum  {
+  BLE_BOND_REQUEST,
+  BLE_BOND_START,
+  BLE_BOND_SUCCESS,
+  BLE_BOND_FAIL
+} BLEBondingStatus;
+
 typedef enum {
   BLEP_NONE,
   BLEP_ERROR,                       //< Softdevice threw some error (code in data)
   BLEP_CONNECTED,                   //< Peripheral connected (address as buffer)
   BLEP_DISCONNECTED,                //< Peripheral disconnected
-  BLEP_ADVERTISING_START,           //< Start adevrtising - do it outside of IRQ because we may need to allocate JsVars
+  BLEP_ADVERTISING_START,           //< Start advertising - do it outside of IRQ because we may need to allocate JsVars
+  BLEP_ADVERTISING_STOP,            //< Stop advertising - do it outside of IRQ
   BLEP_RESTART_SOFTDEVICE,          //< Perform a softdevice restart (again, we don't want to do this in an IRQ!)
   BLEP_RSSI_PERIPH,                 //< RSSI data from peripheral connection (rssi as data)
   BLEP_ADV_REPORT,                  //< Advertising received (as buffer)
+#if CENTRAL_LINK_COUNT>0
   BLEP_RSSI_CENTRAL,                //< RSSI data from central connection (rssi as data low byte, index in m_central_conn_handles as high byte )
-  BLEP_TASK_FAIL_CONN_TIMEOUT,      //< Central: Connection timeout
-  BLEP_TASK_FAIL_DISCONNECTED,      //< Central: Task failed because disconnected
+  BLEP_TASK_FAIL,                   //< Task failed because unknown
+  BLEP_TASK_FAIL_CONN_TIMEOUT,      //< Task failed becauseConnection timeout
+  BLEP_TASK_FAIL_DISCONNECTED,      //< Task failed because disconnected
   BLEP_TASK_CENTRAL_CONNECTED,      //< Central: Connected, (m_central_conn_handles index as data)
   BLEP_TASK_DISCOVER_SERVICE,       //< New service discovered (as buffer)
   BLEP_TASK_DISCOVER_SERVICE_COMPLETE,       //< Service discovery complete
@@ -155,22 +170,28 @@ typedef enum {
   BLEP_TASK_CHARACTERISTIC_READ,    //< Central: Characteristic read finished (as buffer)
   BLEP_TASK_CHARACTERISTIC_WRITE,   //< Central: Characteristic write finished
   BLEP_TASK_CHARACTERISTIC_NOTIFY,  //< Central: Started requesting notifications
+  BLEP_CENTRAL_NOTIFICATION,        //< A characteristic we were watching has changed
   BLEP_CENTRAL_DISCONNECTED,        //< Central: Disconnected (reason as data low byte, index in m_central_conn_handles as high byte )
-  BLEP_TASK_BONDING,                //< Bonding negotiation complete (success in data)
-  BLEP_NFC_STATUS,                  //< NFC changed state
-  BLEP_NFC_RX,                      //< NFC data received (as buffer)
-  BLEP_NFC_TX,                      //< NFC data sent
-  BLEP_HID_SENT,                    //< A HID report has been sent
-  BLEP_HID_VALUE,                   //< A HID value was received (eg caps lock)
+  BLEP_BONDING_STATUS,              //< Bonding negotiation status (data is one of BLEBondingStatus)
+#endif
   BLEP_WRITE,                       //< One of our characteristics written by someone else
-  BLEP_NOTIFICATION,                //< A characteristic we were watching has changes
   BLEP_TASK_PASSKEY_DISPLAY,        //< We're pairing and have been provided with a passkey to display (data = conn_handle)
   BLEP_TASK_AUTH_KEY_REQUEST,       //< We're pairing and the device wants a passkey from us (data = conn_handle)
   BLEP_TASK_AUTH_STATUS,            //< Data on how authentication was going has been received
+#ifdef USE_NFC
+  BLEP_NFC_STATUS,                  //< NFC changed state
+  BLEP_NFC_RX,                      //< NFC data received (as buffer)
+  BLEP_NFC_TX,                      //< NFC data sent
+#endif
+#if BLE_HIDS_ENABLED
+  BLEP_HID_SENT,                    //< A HID report has been sent
+  BLEP_HID_VALUE,                   //< A HID value was received (eg caps lock)
+#endif
 #ifdef ESPR_BLUETOOTH_ANCS
   BLEP_ANCS_NOTIF,                  //< Apple Notification Centre notification received
   BLEP_ANCS_NOTIF_ATTR,             //< Apple Notification Centre notification attributes received
   BLEP_ANCS_APP_ATTR,               //< Apple Notification Centre app attributes received
+  BLEP_ANCS_ERROR,                  //< Apple Notification Centre error - cancel any active tasks
   BLEP_AMS_TRACK_UPDATE,            //< Apple Media Service Track info updated
   BLEP_AMS_PLAYER_UPDATE,           //< Apple Media Service Player info updated
   BLEP_AMS_ATTRIBUTE                //< Apple Media Service Track or Player info read response
@@ -179,21 +200,33 @@ typedef enum {
 
 
 extern volatile BLEStatus bleStatus;
+/// Filter to use when discovering BLE Services/Characteristics
+extern ble_uuid_t bleUUIDFilter;
+
 extern uint16_t bleAdvertisingInterval;           /**< The advertising interval (in units of 0.625 ms). */
+
 extern volatile uint16_t                         m_peripheral_conn_handle;    /**< Handle of the current connection. */
 #if CENTRAL_LINK_COUNT>0
 extern volatile uint16_t                         m_central_conn_handles[CENTRAL_LINK_COUNT]; /**< Handle for central mode connection */
 #endif
 
 
+/// for BLEP_ADV_REPORT
+typedef struct {
+  ble_gap_addr_t            peer_addr;
+  int8_t                    rssi;                  /**< Received Signal Strength Indication in dBm of the last packet received. */
+  uint8_t        dlen;                  /**< Advertising or scan response data length. */
+  uint8_t        data[BLE_GAP_ADV_MAX_SIZE];    /**< Advertising or scan response data. */
+} BLEAdvReportData;
+
 /** Initialise the BLE stack */
 void jsble_init();
 /** Completely deinitialise the BLE stack. Return true on success */
 bool jsble_kill();
-/** Add a task to the queue to be executed (to be called mainly from IRQ-land) - with a buffer of data */
-void jsble_queue_pending_buf(BLEPending blep, uint16_t data, char *ptr, size_t len);
-/** Add a task to the queue to be executed (to be called mainly from IRQ-land) - with simple data */
-void jsble_queue_pending(BLEPending blep, uint16_t data);
+
+/// Checks for error and reports an exception string if there was one, else 0 if no error
+JsVar *jsble_get_error_string(uint32_t err_code);
+
 /** Execute a task that was added by jsble_queue_pending - this is done outside of IRQ land. Returns number of events handled */
 int jsble_exec_pending(IOEvent *event);
 

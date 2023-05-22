@@ -12,6 +12,7 @@
  * ----------------------------------------------------------------------------
  */
 #include "jslex.h"
+#include "jsparse.h"
 #ifndef SAVE_ON_FLASH
 #include "jsflash.h"
 #endif
@@ -51,6 +52,7 @@ void jslCharPosNew(JslCharPos *dstpos, JsVar *src, size_t tokenStart) {
 
 /// Return the next character (do not move to the next character)
 static JSLEX_INLINE char jslNextCh() {
+  assert(lex->it.ptr || lex->it.charIdx==0);
   return (char)(lex->it.ptr ? READ_FLASH_UINT8(&lex->it.ptr[lex->it.charIdx]) : 0);
 }
 
@@ -94,9 +96,10 @@ static JSLEX_INLINE void jslTokenAppendChar(char ch) {
   }
 }
 
-static bool jslIsToken(const char *token, int startOffset) {
+// Check if a token matches (IGNORING FIRST CHAR)
+static bool jslIsToken(const char *token) {
   int i;
-  for (i=startOffset;i<lex->tokenl;i++) {
+  for (i=1;i<lex->tokenl;i++) {
     if (lex->token[i]!=token[i]) return false;
     // if token is smaller than lex->token, there will be a null char
     // which will be different from the token
@@ -275,13 +278,17 @@ static JSLEX_INLINE void jslSingleChar() {
 
 static void jslLexString() {
   char delim = lex->currCh;
-  lex->tokenValue = jsvNewFromEmptyString();
-  if (!lex->tokenValue) {
-    lex->tk = LEX_EOF;
-    return;
-  }
   JsvStringIterator it;
-  jsvStringIteratorNew(&it, lex->tokenValue, 0);
+  it.var = 0; // now jsvStringIteratorAppend/Free will silently do nothing
+  if (JSP_SHOULD_EXECUTE) { // tokenValue already set to 0
+    // Only allocate a string/iterator (and so only append) if we are executing
+    lex->tokenValue = jsvNewFromEmptyString();
+    if (!lex->tokenValue) {
+      lex->tk = LEX_EOF;
+      return;
+    }
+    jsvStringIteratorNew(&it, lex->tokenValue, 0);
+  }
   // strings...
   jslGetNextCh();
   char lastCh = delim;
@@ -362,14 +369,18 @@ static void jslLexString() {
 }
 
 static void jslLexRegex() {
-  lex->tokenValue = jsvNewFromEmptyString();
-  if (!lex->tokenValue) {
-    lex->tk = LEX_EOF;
-    return;
-  }
   JsvStringIterator it;
-  jsvStringIteratorNew(&it, lex->tokenValue, 0);
-  jsvStringIteratorAppend(&it, '/');
+  it.var = 0; // now jsvStringIteratorAppend/Free will silently do nothing
+  if (JSP_SHOULD_EXECUTE) { // tokenValue already set to 0
+    // Only allocate a string/iterator (and so only append) if we are executing
+    lex->tokenValue = jsvNewFromEmptyString();
+    if (!lex->tokenValue) {
+      lex->tk = LEX_EOF;
+      return;
+    }
+    jsvStringIteratorNew(&it, lex->tokenValue, 0);
+    jsvStringIteratorAppend(&it, '/');
+  }
   // strings...
   jslGetNextCh();
   while (lex->currCh && lex->currCh!='/') {
@@ -407,7 +418,7 @@ static void jslLexRegex() {
 void jslSkipWhiteSpace() {
   jslSkipWhiteSpace_start:
   // Skip whitespace
-  while (isWhitespace(lex->currCh))
+  while (isWhitespaceInline(lex->currCh))
     jslGetNextCh();
   // Search for comments
   if (lex->currCh=='/') {
@@ -466,63 +477,64 @@ void jslGetNextToken() {
       if (lex->tk == LEX_R_THIS) lex->hadThisKeyword=true;
       break;
     case JSLJT_ID: {
-      while (isAlpha(lex->currCh) || isNumeric(lex->currCh) || lex->currCh=='$') {
+      while (isAlphaInline(lex->currCh) || isNumericInline(lex->currCh) || lex->currCh=='$') {
         jslTokenAppendChar(lex->currCh);
         jslGetNextCh();
       }
       lex->tk = LEX_ID;
+      if (!lex->token[1]) break; // there are no single-character reserved words - skip the check!
       // We do fancy stuff here to reduce number of compares (hopefully GCC creates a jump table)
       switch (lex->token[0]) {
-      case 'b': if (jslIsToken("break", 1)) lex->tk = LEX_R_BREAK;
+      case 'b': if (jslIsToken("break")) lex->tk = LEX_R_BREAK;
       break;
-      case 'c': if (jslIsToken("case", 1)) lex->tk = LEX_R_CASE;
-      else if (jslIsToken("catch", 1)) lex->tk = LEX_R_CATCH;
-      else if (jslIsToken("class", 1)) lex->tk = LEX_R_CLASS;
-      else if (jslIsToken("const", 1)) lex->tk = LEX_R_CONST;
-      else if (jslIsToken("continue", 1)) lex->tk = LEX_R_CONTINUE;
+      case 'c': if (jslIsToken("case")) lex->tk = LEX_R_CASE;
+      else if (jslIsToken("catch")) lex->tk = LEX_R_CATCH;
+      else if (jslIsToken("class")) lex->tk = LEX_R_CLASS;
+      else if (jslIsToken("const")) lex->tk = LEX_R_CONST;
+      else if (jslIsToken("continue")) lex->tk = LEX_R_CONTINUE;
       break;
-      case 'd': if (jslIsToken("default", 1)) lex->tk = LEX_R_DEFAULT;
-      else if (jslIsToken("delete", 1)) lex->tk = LEX_R_DELETE;
-      else if (jslIsToken("do", 1)) lex->tk = LEX_R_DO;
-      else if (jslIsToken("debugger", 1)) lex->tk = LEX_R_DEBUGGER;
+      case 'd': if (jslIsToken("default")) lex->tk = LEX_R_DEFAULT;
+      else if (jslIsToken("delete")) lex->tk = LEX_R_DELETE;
+      else if (jslIsToken("do")) lex->tk = LEX_R_DO;
+      else if (jslIsToken("debugger")) lex->tk = LEX_R_DEBUGGER;
       break;
-      case 'e': if (jslIsToken("else", 1)) lex->tk = LEX_R_ELSE;
-      else if (jslIsToken("extends", 1)) lex->tk = LEX_R_EXTENDS;
+      case 'e': if (jslIsToken("else")) lex->tk = LEX_R_ELSE;
+      else if (jslIsToken("extends")) lex->tk = LEX_R_EXTENDS;
       break;
-      case 'f': if (jslIsToken("false", 1)) lex->tk = LEX_R_FALSE;
-      else if (jslIsToken("finally", 1)) lex->tk = LEX_R_FINALLY;
-      else if (jslIsToken("for", 1)) lex->tk = LEX_R_FOR;
-      else if (jslIsToken("function", 1)) lex->tk = LEX_R_FUNCTION;
+      case 'f': if (jslIsToken("false")) lex->tk = LEX_R_FALSE;
+      else if (jslIsToken("finally")) lex->tk = LEX_R_FINALLY;
+      else if (jslIsToken("for")) lex->tk = LEX_R_FOR;
+      else if (jslIsToken("function")) lex->tk = LEX_R_FUNCTION;
       break;
-      case 'i': if (jslIsToken("if", 1)) lex->tk = LEX_R_IF;
-      else if (jslIsToken("in", 1)) lex->tk = LEX_R_IN;
-      else if (jslIsToken("instanceof", 1)) lex->tk = LEX_R_INSTANCEOF;
+      case 'i': if (jslIsToken("if")) lex->tk = LEX_R_IF;
+      else if (jslIsToken("in")) lex->tk = LEX_R_IN;
+      else if (jslIsToken("instanceof")) lex->tk = LEX_R_INSTANCEOF;
       break;
-      case 'l': if (jslIsToken("let", 1)) lex->tk = LEX_R_LET;
+      case 'l': if (jslIsToken("let")) lex->tk = LEX_R_LET;
       break;
-      case 'n': if (jslIsToken("new", 1)) lex->tk = LEX_R_NEW;
-      else if (jslIsToken("null", 1)) lex->tk = LEX_R_NULL;
+      case 'n': if (jslIsToken("new")) lex->tk = LEX_R_NEW;
+      else if (jslIsToken("null")) lex->tk = LEX_R_NULL;
       break;
-      case 'o': if (jslIsToken("of", 1)) lex->tk = LEX_R_OF;
+      case 'o': if (jslIsToken("of")) lex->tk = LEX_R_OF;
       break;
-      case 'r': if (jslIsToken("return", 1)) lex->tk = LEX_R_RETURN;
+      case 'r': if (jslIsToken("return")) lex->tk = LEX_R_RETURN;
       break;
-      case 's': if (jslIsToken("static", 1)) lex->tk = LEX_R_STATIC;
-      else if (jslIsToken("super", 1)) lex->tk = LEX_R_SUPER;
-      else if (jslIsToken("switch", 1)) lex->tk = LEX_R_SWITCH;
+      case 's': if (jslIsToken("static")) lex->tk = LEX_R_STATIC;
+      else if (jslIsToken("super")) lex->tk = LEX_R_SUPER;
+      else if (jslIsToken("switch")) lex->tk = LEX_R_SWITCH;
       break;
-      case 't': if (jslIsToken("this", 1)) { lex->tk = LEX_R_THIS; lex->hadThisKeyword=true; }
-      else if (jslIsToken("throw", 1)) lex->tk = LEX_R_THROW;
-      else if (jslIsToken("true", 1)) lex->tk = LEX_R_TRUE;
-      else if (jslIsToken("try", 1)) lex->tk = LEX_R_TRY;
-      else if (jslIsToken("typeof", 1)) lex->tk = LEX_R_TYPEOF;
+      case 't': if (jslIsToken("this")) { lex->tk = LEX_R_THIS; lex->hadThisKeyword=true; }
+      else if (jslIsToken("throw")) lex->tk = LEX_R_THROW;
+      else if (jslIsToken("true")) lex->tk = LEX_R_TRUE;
+      else if (jslIsToken("try")) lex->tk = LEX_R_TRY;
+      else if (jslIsToken("typeof")) lex->tk = LEX_R_TYPEOF;
       break;
-      case 'u': if (jslIsToken("undefined", 1)) lex->tk = LEX_R_UNDEFINED;
+      case 'u': if (jslIsToken("undefined")) lex->tk = LEX_R_UNDEFINED;
       break;
-      case 'w': if (jslIsToken("while", 1)) lex->tk = LEX_R_WHILE;
+      case 'w': if (jslIsToken("while")) lex->tk = LEX_R_WHILE;
       break;
-      case 'v': if (jslIsToken("var", 1)) lex->tk = LEX_R_VAR;
-      else if (jslIsToken("void", 1)) lex->tk = LEX_R_VOID;
+      case 'v': if (jslIsToken("var")) lex->tk = LEX_R_VAR;
+      else if (jslIsToken("void")) lex->tk = LEX_R_VOID;
       break;
       default: break;
       } break;
@@ -531,7 +543,7 @@ void jslGetNextToken() {
         bool canBeFloating = true;
         if (lex->currCh=='.') {
           jslGetNextCh();
-          if (isNumeric(lex->currCh)) {
+          if (isNumericInline(lex->currCh)) {
             // it is a float
             lex->tk = LEX_FLOAT;
             jslTokenAppendChar('.');
@@ -552,7 +564,7 @@ void jslGetNextToken() {
             }
           }
           lex->tk = LEX_INT;
-          while (isNumeric(lex->currCh) || (!canBeFloating && isHexadecimal(lex->currCh)) || lex->currCh=='_') {
+          while (isNumericInline(lex->currCh) || (!canBeFloating && isHexadecimal(lex->currCh)) || lex->currCh=='_') {
             if (lex->currCh != '_') jslTokenAppendChar(lex->currCh);
             jslGetNextCh();
           }
@@ -1110,7 +1122,9 @@ JsVar *jslNewStringFromLexer(JslCharPos *charFrom, size_t charTo) {
   block->varData.str[0] = charFrom->currCh;
   size_t blockChars = 1;
 
-  size_t l = maxLength;
+#ifndef NO_ASSERT  
+  size_t totalStringLength = maxLength;
+#endif
   // now start appending
   JsvStringIterator it;
   jsvStringIteratorClone(&it, &charFrom->it);
@@ -1131,7 +1145,7 @@ JsVar *jslNewStringFromLexer(JslCharPos *charFrom, size_t charTo) {
   jsvSetCharactersInVar(block, blockChars);
   jsvUnLock(block);
   // Just make sure we only assert if there's a bug here. If we just ran out of memory or at end of string it's ok
-  assert((l == jsvGetStringLength(var)) || (jsErrorFlags&JSERR_MEMORY) || !jsvStringIteratorHasChar(&it));
+  assert((totalStringLength == jsvGetStringLength(var)) || (jsErrorFlags&JSERR_MEMORY) || !jsvStringIteratorHasChar(&it));
   jsvStringIteratorFree(&it);
 
 
@@ -1173,7 +1187,7 @@ void jslPrintTokenisedString(JsVar *code, vcbprintf_callback user_callback, void
 
 void jslPrintPosition(vcbprintf_callback user_callback, void *user_data, size_t tokenPos) {
   size_t line,col;
-#ifndef SAVE_ON_FLASH
+#if !defined(SAVE_ON_FLASH) && !defined(ESPR_EMBED)
   if (jsvIsNativeString(lex->sourceVar) || jsvIsFlashString(lex->sourceVar)) {
     uint32_t stringAddr = (uint32_t)(size_t)lex->sourceVar->varData.nativeStr.ptr;
     JsfFileHeader header;

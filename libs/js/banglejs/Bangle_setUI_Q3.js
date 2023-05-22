@@ -25,15 +25,18 @@
     Bangle.removeListener("touch", Bangle.touchHandler);
     delete Bangle.touchHandler;
   }
+  delete Bangle.CLOCK;
   if (Bangle.uiRemove) {
-    Bangle.uiRemove();
-    delete Bangle.uiRemove;
-  }  
+	let r = Bangle.uiRemove;
+	delete Bangle.uiRemove; // stop recursion if setUI is called inside uiRemove
+    r();     
+  }
+  g.reset();// reset graphics state, just in case
+  if (!mode) return;  
   function b() {
     try{Bangle.buzz(30);}catch(e){}
-  }
-  if (!mode) return;
-  else if (mode=="updown") {
+  }  
+  if (mode=="updown") {
     var dy = 0;    
     Bangle.dragHandler = e=>{
       dy += e.dy;
@@ -47,7 +50,7 @@
     Bangle.on('drag',Bangle.dragHandler);
     Bangle.touchHandler = d => {b();cb();};
     Bangle.btnWatches = [
-      setWatch(function() { b();cb(); }, BTN1, {repeat:1}),
+      setWatch(function() { b();cb(); }, BTN1, {repeat:1, edge:"falling"}),
     ];
   } else if (mode=="leftright") {
     var dx = 0;    
@@ -63,7 +66,7 @@
     Bangle.on('drag',Bangle.dragHandler);
     Bangle.touchHandler = d => {b();cb();};
     Bangle.btnWatches = [
-      setWatch(function() { b();cb(); }, BTN1, {repeat:1}),
+      setWatch(function() { b();cb(); }, BTN1, {repeat:1, edge:"falling"}),
     ];
   } else if (mode=="clock") {
     Bangle.CLOCK=1;
@@ -79,8 +82,6 @@
     Bangle.btnWatches = [
       setWatch(Bangle.showLauncher, BTN1, {repeat:1,edge:"falling"})
     ];
-  } else if (mode=="touch") {
-    Bangle.touchHandler = (_,e) => {b();cb(e);};
   } else if (mode=="custom") {
     if (options.clock) Bangle.CLOCK=1;
     if (options.touch)
@@ -103,7 +104,9 @@
       ];
     }
   } else
-    throw new Error("Unknown UI mode");
+    throw new Error("Unknown UI mode "+E.toJS(mode));
+  if (options.remove) // handler for removing the UI (intervals/etc)
+    Bangle.uiRemove = options.remove;
   if (options.back) {
     var touchHandler = (_,e) => {
       if (e.y<36 && e.x<48) {
@@ -120,7 +123,9 @@
       };
       Bangle.on("touch", Bangle.touchHandler);
     }
-    var btnWatch = setWatch(function() {
+    var btnWatch;
+    if (Bangle.btnWatches===undefined) // only add back button handler if there's no existing watch on BTN1
+    btnWatch = setWatch(function() {
       btnWatch = undefined;
       options.back();
     }, BTN1, {edge:"falling"});

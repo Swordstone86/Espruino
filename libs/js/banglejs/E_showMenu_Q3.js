@@ -27,6 +27,7 @@
       E.showScroller({
         h : H, c : (item.max+step-item.min)/step,
         back: show, // redraw original menu
+        remove: options.remove,
         scrollMin : -24, scroll : -24, // title is 24px, rendered at -1
         draw : (idx, r) => {
           if (idx<0) // TITLE
@@ -63,7 +64,8 @@
       draw();
       Bangle.setUI({
           mode: "updown",
-          back: show
+          back: show,
+          remove: options.remove
         }, dir => {
         if (dir) {
           v -= (dir||1)*(item.step||1);
@@ -82,11 +84,12 @@
   var l = {
     draw : ()=>l.scroller.draw(),
     scroller : undefined
-  };  
+  };
   var scr = {
     h : H, c : keys.length/*title*/,
     scrollMin : -24, scroll : options.scroll??-24, // title is 24px, rendered at -1
     back : back,
+    remove : options.remove,
     draw : (idx, r) => {
       if (idx<0) // TITLE
         return g.setColor(g.theme.fg).setFont("12x20").setFontAlign(-1,0).drawString(
@@ -106,7 +109,7 @@
         g.drawImage(/* 9x18 */atob("CRKBAGA4Hg8DwPB4HgcDg8PB4eHg8HAwAA=="), r.x+r.w-21, r.y+H/2-9);
         pad += 16;
       }
-      var title = item.title??keys[idx];
+      var title = (item&&item.title)??keys[idx];
       var l = g.wrapString(title,r.w-pad);
       if (l.length>1)
         l = g.setFont("6x15").wrapString(title,r.w-pad);

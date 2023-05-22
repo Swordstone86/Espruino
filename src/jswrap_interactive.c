@@ -14,7 +14,6 @@
  * ----------------------------------------------------------------------------
  */
 #include "jswrap_interactive.h"
-#include "jswrap_json.h" // for print/console.log
 #include "jswrap_flash.h" // for jsfRemoveCodeFromFlash
 #include "jstimer.h" // for jstSystemTimeChanged
 #include "jsvar.h"
@@ -108,39 +107,13 @@ void jswrap_interface_setDeepSleep(bool sleep) {
 }
 
 
-/*JSON{
-  "type" : "function",
-  "name" : "trace",
-  "ifndef" : "SAVE_ON_FLASH",
-  "generate" : "jswrap_interface_trace",
-  "params" : [
-    ["root","JsVar","The symbol to output (optional). If nothing is specified, everything will be output"]
-  ]
-}
-Output debugging information
-
-Note: This is not included on boards with low amounts of flash memory, or the
-Espruino board.
- */
-void jswrap_interface_trace(JsVar *root) {
-  #ifdef ESPRUINOBOARD
-  // leave this function out on espruino board - we need to save as much flash as possible
-  jsiConsolePrintf("Trace not included on this board");
-  #else
-  if (jsvIsUndefined(root)) {
-    jsvTrace(execInfo.root, 0);
-  } else {
-    jsvTrace(root, 0);
-  }
-  #endif
-}
 
 
 /*JSON{
   "type" : "function",
   "name" : "dump",
   "ifndef" : "SAVE_ON_FLASH",
-  "generate_full" : "jsiDumpState((vcbprintf_callback)jsiConsolePrintString, 0)"
+  "generate_full" : "jsiDumpState(vcbprintf_callback_jsiConsolePrintString, 0)"
 }
 Output current interpreter state in a text form such that it can be copied to a
 new device
@@ -158,7 +131,7 @@ need to recreate these in the `onInit` function.
   "name" : "load",
   "generate" : "jswrap_interface_load",
   "params" : [
-    ["filename","JsVar","optional: The name of a text JS file to load from Storage after reset"]
+    ["filename","JsVar","[optional] The name of a text JS file to load from Storage after reset"]
   ]
 }
 Restart and load the program out of flash - this has an effect similar to
@@ -246,58 +219,6 @@ as well*.
 void jswrap_interface_reset(bool clearFlash) {
   jsiStatus |= JSIS_TODO_RESET;
   if (clearFlash) jsfRemoveCodeFromFlash();
-}
-
-/*JSON{
-  "type" : "function",
-  "name" : "print",
-  "generate" : "jswrap_interface_print",
-  "params" : [
-    ["text","JsVarArray",""]
-  ]
-}
-Print the supplied string(s) to the console
-
- **Note:** If you're connected to a computer (not a wall adaptor) via USB but
- **you are not running a terminal app** then when you print data Espruino may
- pause execution and wait until the computer requests the data it is trying to
- print.
- */
-/*JSON{
-  "type" : "staticmethod",
-  "class" : "console",
-  "name" : "log",
-  "generate" : "jswrap_interface_print",
-  "params" : [
-    ["text","JsVarArray","One or more arguments to print"]
-  ]
-}
-Print the supplied string(s) to the console
-
- **Note:** If you're connected to a computer (not a wall adaptor) via USB but
- **you are not running a terminal app** then when you print data Espruino may
- pause execution and wait until the computer requests the data it is trying to
- print.
- */
-void jswrap_interface_print(JsVar *v) {
-  assert(jsvIsArray(v));
-
-  jsiConsoleRemoveInputLine();
-  JsvObjectIterator it;
-  jsvObjectIteratorNew(&it, v);
-  while (jsvObjectIteratorHasValue(&it)) {
-    JsVar *v = jsvObjectIteratorGetValue(&it);
-    if (jsvIsString(v))
-      jsiConsolePrintStringVar(v);
-    else
-      jsfPrintJSON(v, JSON_PRETTY | JSON_SOME_NEWLINES | JSON_SHOW_OBJECT_NAMES);
-    jsvUnLock(v);
-    jsvObjectIteratorNext(&it);
-    if (jsvObjectIteratorHasValue(&it))
-      jsiConsolePrint(" ");
-  }
-  jsvObjectIteratorFree(&it);
-  jsiConsolePrint("\n");
 }
 
 /*JSON{
@@ -554,6 +475,7 @@ JsVar *_jswrap_interface_setTimeoutOrInterval(JsVar *func, JsVarFloat interval, 
   }
   // Create a new timer
   JsVar *timerPtr = jsvNewObject();
+  if (!timerPtr) return 0;
   JsSysTime intervalInt = jshGetTimeFromMilliseconds(interval);
   jsvObjectSetChildAndUnLock(timerPtr, "time", jsvNewFromLongInteger((jshGetSystemTime() - jsiLastIdleTime) + intervalInt));
   if (!isTimeout) {
@@ -621,7 +543,7 @@ void _jswrap_interface_clearTimeoutOrInterval(JsVar *idVarArr, bool isTimeout) {
     jsvObjectIteratorNew(&it, timerArrayPtr);
     while (jsvObjectIteratorHasValue(&it)) {
       JsVar *timerPtr = jsvObjectIteratorGetValue(&it);
-      JsVar *watchPtr = jsvObjectGetChild(timerPtr, "watch", 0);
+      JsVar *watchPtr = jsvObjectGetChildIfExists(timerPtr, "watch");
       if (!watchPtr)
         jsvObjectIteratorRemoveAndGotoNext(&it, timerArrayPtr);
       else

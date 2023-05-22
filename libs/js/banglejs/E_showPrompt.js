@@ -55,14 +55,14 @@
     });
     Bangle.setLCDPower(1); // ensure screen is on
   }
-  g.clearRect(Bangle.appRect); // clear screen
+  g.reset().clearRect(Bangle.appRect); // clear screen
   if (!msg) {
     Bangle.setUI(); // remove watches
     return Promise.resolve();
   }
   draw();
   return new Promise(resolve=>{
-    Bangle.setUI("leftright", dir=>{
+    Bangle.setUI({mode: "leftright", remove: options.remove}, dir=>{
       if (dir<0) {
         if (options.selected>0) {
           options.selected--;

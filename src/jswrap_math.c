@@ -69,6 +69,9 @@ double jswrap_math_sin(double x) {
   return sin(x);
 #endif
 }
+double jswrap_math_cos(double x) {
+  return jswrap_math_sin(x + (PI/2));
+}
 
 /*JSON{
   "type" : "class",
@@ -189,7 +192,6 @@ double jswrap_math_atan(double x) {
   /* To save on flash, do our own atan function that's slower/nastier
    * but is smaller! */
   // exploit symmetry - we're only accurate when x is small
-  double ox = x;
   bool negate = false;
   bool offset = false;
   if (x<0) {
@@ -253,7 +255,7 @@ double jswrap_math_atan2(double y, double x) {
   "type" : "staticmethod",
   "class" : "Math",
   "name" : "cos",
-  "generate_full" : "jswrap_math_sin(theta + (PI/2))",
+  "generate" : "jswrap_math_cos",
   "params" : [
     ["theta","float","The angle to get the cosine of"]
   ],
@@ -356,7 +358,7 @@ double jswrap_math_pow(double x, double y) {
 }*/
 JsVar *jswrap_math_round(double x) {
   if (!isfinite(x) || isNegativeZero(x)) return jsvNewFromFloat(x);
-  x += (x<0) ? -0.4999999999 : 0.4999999999;
+  x += (x<0) ? -0.5 : 0.5;
   long long i = (long long)x;
   if (i==0 && (x<0))
     return jsvNewFromFloat(-0.0); // pass -0 through
@@ -525,3 +527,20 @@ JsVarFloat jswrap_math_minmax(JsVar *args, bool isMax) {
   return v;
 }
 
+/*JSON{
+  "type" : "staticmethod",
+  "ifndef" : "SAVE_ON_FLASH_EXTREME",
+  "class" : "Math",
+  "name" : "sign",
+  "generate" : "jswrap_math_sign",
+  "params" : [
+    ["x","float","The value to get the sign from"]
+  ],
+  "return" : ["int","sign on x - -1, 1, or 0"]
+}*/
+int jswrap_math_sign(double x)
+{
+  if (x == 0 || isNegativeZero(x))
+    return 0;
+  return x > 0 ? 1 : -1;
+}
